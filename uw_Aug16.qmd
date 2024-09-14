@@ -1,0 +1,703 @@
+---
+title: "psy334_religOptm"
+format: pdf
+---
+
+# Setup
+```{r}
+library(dplyr)
+library(tidyverse)
+library(effectsize)
+library(car)
+library(emmeans)
+```
+
+```{r}
+df <- read.csv("~/Desktop/PSY 334_Aug2, 2024_numvalue.csv") |> 
+  select(
+    consent_begin,
+    relig_intellect,
+    relig_ideology,
+    relig_intellect.1,
+    relig_ideology.1,
+    relig_practice0,
+    relig_q4,
+    relig_q5,
+    relig_q10,
+    relig_q11,
+    relig_q12,
+    relig_experience1,
+    relig_experience2,
+    relig_experience3,
+    relig_experience4,
+    Chapel_q1,
+    chapel_q2,
+    chapel_q3,
+    restaur_q1,
+    restaur_q2,
+    restuar_q3,
+    SOM_q1,
+    SOM_q2,
+    SOM_q3,
+    SOM_q4,
+    SOM_q5,
+    SOM_q6,
+    SOM_q7,
+    demogr_age,
+    demogr_gender,
+    demogr_race,
+    demogr_race_6_TEXT,
+    demogr_reliorspri,
+    demogr_religions,
+    demogr_religions_8_TEXT,
+    gemogr_spiritual,
+    gemogr_spiritual_4_TEXT,
+    check_q,
+    debrief_fb
+  )
+
+```
+
+# Clean data
+```{r}
+# remove duplication for the original dataframe
+table(duplicated(df)) 
+
+df <- df %>% distinct() # only keep unique rows
+```
+
+```{r}
+# remove first and second line
+df_clean <- df[-c(1, 2), ]
+```
+
+```{r}
+# filter to only people agrees to take the survey. 
+df_clean <- df_clean |> 
+  filter(consent_begin == 2) |> 
+  # filter to people who answered the outcome variables surveys. 
+  filter(!is.na(SOM_q1)) |>
+  filter(SOM_q1 != "")
+```
+
+```{r}
+# check the number of rows 
+
+glimpse(df_clean)
+nrow(df_clean)
+ncol(df_clean)
+```
+
+
+# Composite for optimism(SOM), and religiosity. 
+
+```{r}
+# Identify columns that start with "SOM"
+SOM_comp <- grep("^SOM", names(df_clean), value = TRUE)
+
+# Convert columns to numeric, suppressing warnings for NAs
+df_clean[SOM_comp] <- lapply(df_clean[SOM_comp], function(x) as.numeric(as.character(x)))
+
+# Remove rows where all SOM columns are NA
+df_clean <- df_clean[rowSums(is.na(df_clean[, SOM_comp])) < length(SOM_comp), ]
+
+# Calculate the mean across these columns for each row, ignoring NA values
+df_clean$SOM_comp <- rowMeans(df_clean[, SOM_comp], na.rm = TRUE)
+```
+
+Make composite for four religious dimensions separately: Intellect, Ideology, private and public practice, Experience.
+```{r}
+# Convert columns to numeric 
+# Identify columns that start with "relig"
+relig_cols <- grep("^relig", names(df_clean), value = TRUE)
+
+# Convert identified columns to numeric, handling factors and characters
+df_clean[relig_cols] <- lapply(df_clean[relig_cols], function(x) as.numeric(as.character(x)))
+```
+
+Scaling: all relig columns range from 1-5.
+```{r}
+# Define a function to scale values to a range of 1 to 5
+scale_to_1_5 <- function(x) {
+  min_val <- min(x, na.rm = TRUE)
+  max_val <- max(x, na.rm = TRUE)
+  if (max_val > min_val) {
+    scaled_x <- 1 + (x - min_val) * 4 / (max_val - min_val)
+  } else {
+    scaled_x <- x # If min and max are equal, don't scale
+  }
+  return(scaled_x)
+}
+
+# Apply scaling function to each "relig" column
+df_clean[relig_cols] <- lapply(df_clean[relig_cols], scale_to_1_5)
+
+```
+
+```{r}
+# Create a composite variable with means of the selected columns
+df_clean <- df_clean %>%
+  rowwise() %>%
+  # composite for private and public practice
+  mutate(relig_prac_comp = mean(c(relig_practice0, relig_q4, relig_q5, relig_q10, relig_q11, relig_q12), na.rm = TRUE)) |>
+  # composite for Intellect dimension
+  mutate(relig_intell_comp = mean(c(relig_intellect, relig_intellect.1), na.rm = TRUE)) |>
+  # Make composite for Ideology dimension
+  mutate(relig_ideol_comp = mean(c(relig_ideology, relig_ideology.1), na.rm = TRUE)) |>
+  # Make composite for Experience dimension
+  mutate(relig_exp_comp = mean(c(
+    relig_experience1,
+    relig_experience2,
+    relig_experience3,
+    relig_experience4), na.rm = TRUE))
+```
+
+
+```{r}
+# Make a total Composite for four dimensions together.
+df_clean <- df_clean %>%
+  rowwise() %>%
+  mutate(relig_tot_comp = mean(c(
+    relig_exp_comp,
+    relig_ideol_comp,
+    relig_prac_comp,
+    relig_intell_comp), na.rm = TRUE))
+
+# check the number of rows 
+glimpse(df_clean)
+nrow(df_clean)
+ncol(df_clean)
+```
+
+
+# Reliability Check 
+```{r}
+if (!require(psych)) {
+  install.packages("psych")
+}
+
+# Load the psych package
+library(psych)
+```
+
+
+run reliability for eac dimension inside dimensions 
+
+
+Compute for religiousness's reliability first. 
+```{r}
+# Select the composite columns
+composite_data <- df_clean[, c("relig_prac_comp", "relig_intell_comp", "relig_ideol_comp", "relig_exp_comp")]
+
+# Calculate Cronbach's alpha for the selected composite columns
+relig_comp_alpha <- psych::alpha(composite_data)
+
+# Optionally, view detailed information
+print(relig_comp_alpha)
+
+# Print the results
+print(relig_comp_alpha$total)
+
+# Print the overall Cronbach's alpha value for the total composite
+cat("Cronbach's Alpha for the total religous composite:", relig_comp_alpha$total$raw_alpha, "\n")
+```
+
+Internal consistency for each religious dimensions. 
+```{r}
+# religous practice's alpha
+relig_prac_alpha <- df_clean[, c("relig_practice0", "relig_q4", "relig_q5", "relig_q10", "relig_q11", "relig_q12")]
+
+# Calculate Cronbach's alpha for the selected composite columns
+relig_prac_alpha <- psych::alpha(relig_prac_alpha)
+
+# Print the results
+print(relig_prac_alpha$total)
+
+# Print the overall Cronbach's alpha value for the total composite
+cat("Cronbach's Alpha for the practice religious composite:", relig_prac_alpha$total$raw_alpha, "\n")
+```
+
+```{r}
+
+# religous intellect's alpha
+relig_intell_alpha <- df_clean[, c("relig_intellect", "relig_intellect.1")]
+
+# Calculate Cronbach's alpha for the selected composite columns
+relig_intell_alpha <- psych::alpha(relig_intell_alpha)
+
+# Print the results
+print(relig_intell_alpha$total)
+
+# Print the overall Cronbach's alpha value for the total composite
+cat("Cronbach's Alpha for the intellect dimension:", relig_intell_alpha$total$raw_alpha, "\n")
+```
+
+```{r}
+# religous ideology's alpha
+relig_ideo_alpha <- df_clean[, c("relig_ideology", "relig_ideology.1")]
+
+# Calculate Cronbach's alpha for the selected composite columns
+relig_ideo_alpha <- psych::alpha(relig_ideo_alpha)
+
+# Print the results
+print(relig_ideo_alpha$total)
+
+# Print the overall Cronbach's alpha value for the total composite
+cat("Cronbach's Alpha for the ideology dimension:", relig_ideo_alpha$total$raw_alpha, "\n")
+
+```
+
+```{r}
+# religous experience's alpha
+relig_exp_alpha <- df_clean[, c(
+  "relig_experience1",
+  "relig_experience2",
+  "relig_experience3",
+  "relig_experience4")]
+
+# Calculate Cronbach's alpha for the selected composite columns
+relig_exp_alpha <- psych::alpha(relig_exp_alpha)
+
+# Print the results
+print(relig_exp_alpha$total)
+
+# Print the overall Cronbach's alpha value for the total composite
+cat("Cronbach's Alpha for the experience dimension:", relig_exp_alpha$total$raw_alpha, "\n")
+
+
+```
+
+
+Then, compute Cronbach's Alpha for SOM. 
+```{r}
+
+# Compute Cronbach's alpha for SOM columns
+SOM_alpha <- psych::alpha(df_clean[SOM_comp])
+
+# Optionally, view detailed reliability analysis
+print(SOM_alpha)
+
+# Print the Cronbach's alpha value
+cat("Cronbach's Alpha for SOM_comp:", SOM_alpha$total$raw_alpha, "\n")
+```
+
+
+
+# Running analysis
+Does relligiousness cause situational optimism? 
+1. Run a general t-test first: independent variable: restaurant or chapel.
+2. t-test for religiosity control variable. Run a multivariable regression for the control variable, which is the scale of relgiousness scale.
+
+## independent t-test
+
+data cleaning
+```{r}
+# Create a new column to indicate group membership based on manipulation checks
+df_clean <- df_clean %>%
+  mutate(manip_group = case_when(
+    !is.na(Chapel_q1) & Chapel_q1 != "" ~ "chapel",  # Assign to 'chapel' if Chapel_q1 has text
+    !is.na(restaur_q1) & restaur_q1 != "" ~ "restaurant",  # Assign to 'restaurant' if restaur_q1 has text
+    TRUE ~ NA_character_  # Assign NA if neither condition is met
+  ))
+```
+
+Check for equal variance
+```{r}
+# Ensure SOM_comp is numeric
+df_clean$SOM_comp <- as.numeric(df_clean$SOM_comp)
+
+# check for equal variance
+leveneTest(SOM_comp ~ manip_group, data=df_clean, center=mean) 
+```
+With a p-value of 0.1036, I fail to reject the null hypothesis, suggesting that the variances between the “chapel” and “restaurant” groups are not significantly different.
+
+```{r}
+# summary statistics
+summary_stats <- df_clean |>
+  group_by(manip_group) %>%
+  summarize(count = n(),
+            mean = mean(SOM_comp, na.rm=TRUE),
+            sd = sd(SOM_comp, na.rm=TRUE))
+
+summary_stats
+```
+
+
+```{r}
+# Encode manip_group: chapel to 1, restaurant to 2
+df_clean <- df_clean %>%
+  mutate(manip_group_encoded = case_when(
+    manip_group == "chapel" ~ 1,
+    manip_group == "restaurant" ~ 2,
+    TRUE ~ NA_real_  # Use NA_real_ for numeric NA
+  ))
+
+# Convert manip_group_encoded to a factor
+df_clean$manip_group_encoded <- factor(df_clean$manip_group_encoded, levels = c(1, 2))
+
+# Filter out rows with NA in SOM_comp or manip_group_encoded
+df_clean <- df_clean %>%
+  filter(!is.na(SOM_comp) & !is.na(manip_group_encoded))
+
+# Check the distribution of the encoded group variable
+print(table(df_clean$manip_group_encoded))
+
+# Perform the t-test on SOM_comp between the encoded groups
+t1_test_result <- t.test(SOM_comp ~ manip_group_encoded, data = df_clean, var.equal = TRUE)
+
+# Calculate Cohen's d for effect size
+t1_effect_size <- cohens_d(SOM_comp ~ manip_group_encoded, data = df_clean)
+
+# Print results
+print(t1_test_result)
+print(t1_effect_size)
+```
+
+
+## Control group regression
+Categorize the relig_tot_comp variable into three levels (“non-religious,” “religious,” and “highly-religious”):
+    - **1.0 to 2.0:** Non-religious
+    - **2.1 to 3.9:** Religious
+    - **4.0 to 5.0:** Highly religious 
+
+```{r}
+# Ensure relig_tot_comp is numeric
+df_clean$relig_tot_comp <- as.numeric(df_clean$relig_tot_comp)
+
+# Categorize relig_tot_comp into three levels
+df_clean <- df_clean %>%
+  mutate(relig_level = case_when(
+    relig_tot_comp >= 1.0 & relig_tot_comp <= 2.0 ~ "non-religious",
+    relig_tot_comp > 2.0 & relig_tot_comp <= 3.9 ~ "religious",
+    relig_tot_comp >= 4.0 & relig_tot_comp <= 5.0 ~ "highly-religious",
+    TRUE ~ NA_character_  # Assign NA for any unexpected values
+  ))
+
+# Convert relig_category to a factor
+df_clean$relig_level <- factor(df_clean$relig_level, levels = c("non-religious", "religious", "highly-religious"))
+
+# Print the distribution of the new categories
+print(table(df_clean$relig_level))
+```
+ non-religious        religious highly-religious 
+              11               18                9 
+
+```{r}
+# summary statistics
+df_clean |>
+  group_by(relig_level) %>%
+  summarize(count = n(),
+            mean = mean(SOM_comp, na.rm=TRUE),
+            sd = sd(SOM_comp, na.rm=TRUE))
+
+# check for equal variance
+leveneTest(SOM_comp ~ manip_group * relig_level, data=df_clean, center=mean) 
+```
+
+```{r}
+# Run the multivariable regression for interaction 
+# ml_control <- lm(SOM_comp ~ manip_group_encoded + relig_level, data = df_clean)
+# summary(ml_control)
+# print(ml_control)
+
+m2_control <- lm(SOM_comp ~ manip_group_encoded * relig_level, data = df_clean)
+summary(m2_control)
+print(m2_control)
+```
+
+
+
+## Plot Graphs
+```{r}
+# plot the graph: box plot
+library(ggplot2)
+
+# Plot SOM_comp vs. manip_group_encoded, faceted by relig_level
+p <- ggplot(df_clean, aes(x = manip_group, y = SOM_comp, fill = manip_group)) +
+  geom_boxplot() +
+  facet_wrap(~ relig_level) +
+  labs(
+    title = "SOM_comp by Manipulation Group and Religious Level",
+    x = "Manipulation Group",
+    y = "SOM_comp",
+    fill = "Manipulation Group"
+  ) +
+  theme_minimal()
+
+# Print the plot
+print(p)
+```
+
+```{r}
+# Plot graph: bar graph
+summary_data <- df_clean %>%
+  group_by(relig_level, manip_group) %>%
+  summarize(mean_SOM_comp = mean(SOM_comp, na.rm = TRUE))
+
+# Plot the bar graph
+p <- ggplot(summary_data, aes(x = manip_group, y = mean_SOM_comp, fill = manip_group)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~ relig_level) +
+  labs(
+    title = "Mean SOM_comp by Manipulation Group and Religious Level",
+    x = "Manipulation Group",
+    y = "Mean SOM_comp",
+    fill = "Manipulation Group"
+  ) +
+  theme_minimal()
+
+# Print the plot
+print(p)
+```
+
+
+## 2x3 ANOVA 
+Run two-by-three Anova test to between three levels of religous level on optimusm, also compare group within each level of religiousness. 
+
+Clean data
+```{r}
+# Create a Numeric Encoding for relig_level:
+# Encode “non-religious” as 1, “religious” as 2, and “highly-religious” as 3.
+df_clean <- df_clean %>%
+  mutate(relig_level = case_when(
+    relig_level == "non-religious" ~ 1,
+    relig_level == "religious" ~ 2,
+    relig_level == "highly-religious" ~ 3,
+    TRUE ~ NA_real_ 
+  ))
+
+# Convert relig_level and manip_group_encoded to factors
+df_clean$manip_group_encoded <- factor(df_clean$manip_group_encoded, levels = c(1, 2))
+df_clean$relig_level <- factor(df_clean$relig_level, levels = c(1, 2, 3), labels = c("non-religious", "religious", "highly-religious"))
+```
+
+Running 2x3 anova test
+```{r}
+# summary statistics
+df_clean |>
+  group_by(manip_group, relig_level) %>%
+  summarize(count = n(),
+            mean = mean(SOM_comp, na.rm=TRUE),
+            sd = sd(SOM_comp, na.rm=TRUE))
+```
+
+```{r}
+contrasts(df_clean$manip_group_encoded) <- contr.sum(2)
+contrasts(df_clean$relig_level) <- contr.sum(3)
+```
+
+```{r}
+# use the results from ml_control before in the control group multiregression
+model_2x3aov <- Anova(m2_control, type = "3")
+model_2x3aov
+
+eta_squared(model_2x3aov, alternative = 'two.sided')
+
+sd_emm <- emmeans(m2_control, ~manip_group_encoded | relig_level)
+pairs(sd_emm, adjust="tukey")
+```
+
+
+
+# Making plots
+## t-test
+bar graph:
+```{r}
+# BarPlot 
+# summary statistics
+summary_stats <- df_clean |>
+  group_by(manip_group) %>%
+  summarize(count = n(),
+            mean = mean(SOM_comp, na.rm=TRUE),
+            sd = sd(SOM_comp, na.rm=TRUE),
+            se = sd(SOM_comp, na.rm = TRUE) / sqrt(n()))
+
+summary_stats
+```
+
+
+```{r}
+# Bar plot with error bars
+ggplot(summary_stats, aes(x = manip_group, y = mean, fill = manip_group)) +
+  geom_bar(stat = "identity", position = "dodge", na.rm = TRUE) +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se), width = 0.2, position = position_dodge(0.9)) +
+  labs(
+       x = "Manipulation Group",
+       y = "Mean Situational Optimism") +
+  theme_minimal() +
+  scale_fill_manual(values = c("#0073C2FF", "#EFC000FF"))+
+  theme(panel.grid = element_blank(),
+        legend.position = "none") +
+  coord_cartesian(ylim=c(1,5)) +
+  scale_y_continuous(breaks = 1:5) 
+```
+
+
+Boxplot:
+```{r}
+# Box plot with error bars
+ggplot(df_clean, aes(x = manip_group, y = SOM_comp, fill = manip_group)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = NA) +  # Box plot without outliers
+  stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2) +
+  labs(title = "Distribution of Situational Optimism Across Manipulation Groups",
+       x = "Manipulation Group",
+       y = "Situational Optimism") +
+  theme_minimal() +
+  scale_fill_manual(values = c("#0073C2FF", "#EFC000FF")) +
+  theme(legend.position = "none")
+```
+
+## 2x3 Anova
+bar graph:
+```{r}
+library(ggplot2)
+library(emmeans)
+
+df_clean %>%
+  group_by(relig_level, manip_group_encoded) %>%
+  summarise(n = n(),
+            mean = mean(SOM_comp, na.rm=T),
+            sd = sd(SOM_comp, na.rm=T))
+
+df_clean %>% 
+  filter(relig_level == "highly-religious") %>%
+  filter(manip_group_encoded == 1) %>%
+  select(SOM_comp)
+
+# Obtain estimated marginal means
+emm_results <- emmeans(m2_control, ~ manip_group_encoded * relig_level)
+
+# Convert emmeans results to a data frame for plotting
+emm_df <- as.data.frame(emm_results)
+emm_df
+
+# Rename the manipulation group levels
+emm_df$manip_group_encoded <- factor(emm_df$manip_group_encoded, 
+                                     levels = c(1, 2), 
+                                     labels = c("Chapel", "Restaurant"))
+
+# Bar chart
+ggplot(emm_df, aes(x = relig_level, y = emmean, fill = manip_group_encoded)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), 
+                width = 0.2, 
+                position = position_dodge(0.9)) +
+  labs(
+       x = "Level of Religiousness",
+       y = "Estimated Mean Situational Optimism",
+       fill = "Manipulation Group") +
+  theme_minimal() +
+  scale_fill_manual(values = c("#0073C2FF", "#EFC000FF")) + theme(panel.grid = element_blank()) +
+   coord_cartesian(ylim=c(1,5)) +
+   scale_y_continuous(breaks = seq(1, 5))
+  
+```
+
+boxplot:
+```{r}
+library(ggplot2)
+library(emmeans)
+
+# Obtain estimated marginal means
+emm_results <- emmeans(m2_control, ~ manip_group_encoded * relig_level)
+
+# Convert emmeans results to a data frame for plotting
+emm_df <- as.data.frame(emm_results)
+
+# Rename the manipulation group levels
+emm_df$manip_group_encoded <- factor(emm_df$manip_group_encoded, 
+                                     levels = c(1, 2), 
+                                     labels = c("Chapel", "Restaurant"))
+
+# Interaction plot
+ggplot(emm_df, aes(x = relig_level, y = emmean, color = manip_group_encoded, group = manip_group_encoded)) +
+  geom_point(size = 3) +
+  geom_line(aes(linetype = manip_group_encoded), size = 1) +
+  geom_errorbar(aes(ymin = emmean - SE, ymax = emmean + SE), width = 0.2, color = "black") +
+  labs(title = "Situational Optimism by Religiousness and Manipulation Group",
+       x = "Level of Religiousness",
+       y = "Estimated Mean Situational Optimism (SOM_comp)",
+       color = "Manipulation Group",
+       linetype = "Manipulation Group") +
+  theme_minimal() +
+  scale_color_manual(values = c("#A9A9A9", "#000000"))
+```
+
+# Making tables 
+
+
+```{r}
+# Load necessary library
+library(dplyr)
+library(tidyr)
+library(knitr)
+
+summary_stats <- df_clean %>%
+  group_by(manip_group, relig_level) %>%
+  summarize(
+    count = n(),
+    mean = round(mean(SOM_comp, na.rm = TRUE), 2),
+    sd = round(sd(SOM_comp, na.rm = TRUE), 2),
+    .groups = 'drop'  # Drop the grouping structure after summarizing
+  )
+
+# Reshaping the data to a wide format
+#wide_data <- summary_stats %>%
+  #pivot_wider(names_from = manip_group, values_from = c(count, mean, sd), names_sep = "_")
+
+# Adjust column names if needed, or you can leave them as generated by pivot_wider for clarity
+
+# Display the table with knitr
+knitr::kable(summary_stats, 
+             caption = "Combined Descriptive Statistics by Manipulation Group and Religious Levels")
+```
+
+# Demographics Summary
+```{r}
+# turn age into numeric value
+df_clean$demogr_age <- as.numeric(df_clean$demogr_age, na.rm = TRUE)
+
+# Age statistics 
+age_summary <- df_clean %>%
+  summarize(
+    mean_age = mean(demogr_age, na.rm = TRUE),
+    sd_age = sd(demogr_age, na.rm = TRUE),
+    min_age = min(demogr_age, na.rm = TRUE),
+    max_age = max(demogr_age, na.rm = TRUE),
+  )
+
+# Print the summary
+print(age_summary)
+```
+
+```{r}
+# Load necessary library
+library(dplyr)
+
+# Calculate overall summary statistics for the demogr_age variable
+age_summary <- df_clean %>%
+  group_by() |>
+  summarize(
+    mean_age = mean(demogr_age, na.rm = TRUE),
+    sd_age = sd(demogr_age, na.rm = TRUE),
+    min_age = min(demogr_age, na.rm = TRUE),
+    max_age = max(demogr_age, na.rm = TRUE),
+    count = n()
+  )
+
+# Print the summary
+print(age_summary)
+```
+
+**Religious Statistics**:
+*     7 religious (2 Catholic; 4 Protestant; 1 Muslim), 
+      6 Spiritual (1 Agnostic; 1 Unaffiliated; 2 Others: 1 Belief in creators/creator, 1 Christian), 
+      26 Neither religious nor spiritual.
+      
+**Race Statistics**: 
+      24 Asian, 
+      5 Black or African American, 
+      6 White, 
+      3 others(1 mixed, 1 Latina/Hispanic, empty)
+      
+**Gender Statistics**: 28 females, 9 males, 1 prefer not to say. 
